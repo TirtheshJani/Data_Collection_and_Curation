@@ -1,0 +1,105 @@
+import org.apache.spark.sql.streaming.StreamingQuery
+import org.apache.spark.sql._
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.functions._
+import org.apache.spark.streaming._
+import org.apache.spark.sql.streaming.Trigger
+import java.util.Properties
+val spark = SparkSession.builder
+  .appName("EmployeeSalaryProcessor")
+  .master("local")
+  .getOrCreate()
+
+
+
+val employeeSchema = StructType(Seq(
+  StructField("Id", StringType),
+  StructField("Name", StringType),
+  StructField("Department", StringType),
+  StructField("Salary", StringType),
+  StructField("timestamp", TimestampType)
+))
+
+// Set up Kafka source to read data from the "Employee" topic
+val kafkaBootstrapServers = "localhost:9092" 
+val kafkaTopic = "Employeefinal"
+
+val employeeUserDF = spark.readStream
+  .format("kafka")
+  .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+  .option("subscribe", kafkaTopic)
+  .load()
+  .selectExpr("CAST(value AS STRING) as json")
+  .select(from_json($"json", employeeSchema).as("employee"))
+  .select(
+    $"employee.Id".alias("Id"),
+    $"employee.Name".alias("Name"),
+    $"employee.Department".alias("Department"),
+    $"employee.Salary".cast("integer").alias("Salary"),
+	current_timestamp().alias("timestamp")
+  )
+
+
+
+// Process the data and categorize it
+val highSalary = employeeUserDF.filter($"Salary" >= 20000)
+val lowSalary = employeeUserDF.filter($"Salary" < 20000)
+
+// Serialize the data for writing to Kafka
+val highSalaryJson = highSalary.select(to_json(struct(col("*"))).cast("string").as("value"))
+val lowSalaryJson = lowSalary.select(to_json(struct(col("*"))).cast("string").as("value"))
+
+
+
+val connectionProperties = new Properties()
+connectionProperties.put("user", "training")
+connectionProperties.put("password", "training")
+connectionProperties.put("driver", "com.mysql.cj.jdbc.Driver")
+val jdbcUrl = "jdbc:mysql://10.128.0.12:3306/EmployeeTest"
+
+
+
+val highSalaryQuery = highSalaryJson.writeStream
+  .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
+    batchDF.write
+      .mode(SaveMode.Append).jdbc(jdbcUrl, "high_salary", connectionProperties)
+  }
+  .option("checkpointLocation", "file:////home/tirtheshjani1999/high_salary")
+  .trigger(Trigger.ProcessingTime("10 seconds"))
+  .start()
+
+val lowSalaryQuery = lowSalaryJson.writeStream
+  .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
+    batchDF.write
+      .mode(SaveMode.Append).jdbc(jdbcUrl, "low_salary", connectionProperties)
+  }
+  .option("checkpointLocation", "file:////home/tirtheshjani1999/low_salary")
+  .trigger(Trigger.ProcessingTime("10 seconds"))
+  .start()
+highSalaryQuery.awaitTermination()
+lowSalaryQuery.awaitTermination()
+
+// Write the high salary data to the "high_salary" Kafka topic
+val highSalaryStream = highSalaryJson.writeStream
+  .format("kafka")
+  .option("kafka.bootstrap.servers", "localhost:9092")
+  .option("topic", "high_salary")
+  .option("checkpointLocation", "file:////home/tirtheshjani1999/chkpthigh")
+  .outputMode("append")
+  .trigger(Trigger.ProcessingTime("10 seconds"))
+  .start()
+
+// Write the low salary data to the "low_salary" Kafka topic
+val lowSalaryStream = lowSalaryJson.writeStream
+  .format("kafka")
+  .option("kafka.bootstrap.servers", "localhost:9092")
+  .option("topic", "low_salary")
+  .option("checkpointLocation", "file:////home/tirtheshjani1999/chkptlow")
+  .outputMode("append")
+  .trigger(Trigger.ProcessingTime("10 seconds"))
+  .start()
+
+
+// Await termination of both streams
+highSalaryStream.awaitTermination()
+lowSalaryStream.awaitTermination()
