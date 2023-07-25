@@ -1,18 +1,23 @@
-# Final-Project-Data-Collection-and-Curation-
-This Project demonstrates a Spark Streaming application developed in Scala that makes use of Apache Spark's Structured Streaming API. It shows how to read data from Kafka, process the data, and write the results to a MySQL database and Kafka topics.
-The following is a summary of what the code does:
-1. It loads the necessary Spark and streaming libraries.
-2. It creates a SparkSession, which serves as the starting point for dealing with structured data in Spark.
-3. It specifies the schema for employee data.
-4. It creates a Kafka source to read information from the "Employeefinal" topic.
-5. It processes the data by separating employees with high incomes (>= 20000) from those with low salaries ( 20000).
-6. It serialises the filtered data into JSON format so that it may be written to Kafka.
-7. It sets up the MySQL database connection properties.
-8. It defines a streaming query to publish the high-salary data to the MySQL database's "high_salary" table.
-9. It defines another streaming query to publish the low-salary data to the MySQL database's "low_salary" table.
-10. It launches the streaming queries to process and write the data in real time.
-11.	It is waiting for the streaming queries to finish.
-12.	The high-salary data is written to the "high_salary" Kafka topic.
-13.	The low-salary data is written to the "low_salary" Kafka topic.
+# Project-Data-Collection-and-Curation-
+In this code, I developed a real-time data streaming pipeline using Apache Spark, Kafka, and JDBC connection to a MySQL database. The purpose of the pipeline is to process real-time employee data and categorize it based on the salary of employees. Here is what I did:
 
-In short, this code accepts streaming data from Kafka, processes it by categorising employees based on their wage, publishes the processed data to a MySQL database, and also writes the categorised data to separate Kafka topics.
+1. Spark set up: I began by creating a SparkSession, the entry point to any Spark functionality. I named it "EmployeeSalaryProcessor" and set it to run locally.
+
+2. Defining the schema: I defined the schema for the employee data, which includes fields like Id, Name, Department, Salary, and a timestamp.
+
+3. Establishing Kafka source: I set up a Kafka source to read data from a Kafka topic named "Employeefinal". The Kafka server is running locally on port 9092.
+
+4. Data extraction and transformation: After reading the data, I extracted and transformed it from Kafka's format to a DataFrame. I did this by casting the data to string and parsing it as JSON. I then selected the necessary fields, converting the Salary to an integer and adding a timestamp to each row.
+
+5. Data processing: I split the DataFrame into two categories: high salary (salary >= 20000) and low salary (salary < 20000).
+
+6. Serialization: I converted both DataFrames back to JSON format in preparation for writing them back to Kafka.
+
+7. JDBC connection setup: I set up a JDBC connection to a MySQL database with the necessary credentials and driver information.
+
+8. Writing to MySQL: Using the writeStream functionality, I wrote the high salary and low salary data to two different tables ("high_salary" and "low_salary") in the MySQL database in batch mode. The data is appended to these tables every 10 seconds.
+
+9. Writing back to Kafka: I also wrote the high and low salary data back to two separate Kafka topics, "high_salary" and "low_salary", using Spark's writeStream function. The data in Kafka is updated every 10 seconds as well.
+
+
+So, in a nutshell, this program reads real-time employee data from a Kafka topic, processes it in Spark to categorize employees into high and low salary groups, writes the results to a MySQL database and back to separate Kafka topics for further downstream processing.
