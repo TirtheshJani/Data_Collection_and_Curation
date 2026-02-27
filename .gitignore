@@ -1,0 +1,8 @@
+target/
+.idea/
+*.iml
+.DS_Store
+checkpoint/
+spark-warehouse/
+metastore_db/
+derby.log

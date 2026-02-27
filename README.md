@@ -1,23 +1,95 @@
-# Project-Data-Collection-and-Curation-
-In this code, I developed a real-time data streaming pipeline using Apache Spark, Kafka, and JDBC connection to a MySQL database. The purpose of the pipeline is to process real-time employee data and categorize it based on the salary of employees. Here is what I did:
+# Real-time Employee Salary Processing Pipeline
 
-1. Spark set up: I began by creating a SparkSession, the entry point to any Spark functionality. I named it "EmployeeSalaryProcessor" and set it to run locally.
+This project implements a real-time data streaming pipeline using Apache Spark Structured Streaming, Kafka, and MySQL. It processes employee data, categorizes it based on salary, and stores the results in both MySQL and Kafka for downstream consumption.
 
-2. Defining the schema: I defined the schema for the employee data, which includes fields like Id, Name, Department, Salary, and a timestamp.
+## Architecture
 
-3. Establishing Kafka source: I set up a Kafka source to read data from a Kafka topic named "Employeefinal". The Kafka server is running locally on port 9092.
+1.  **Data Source**: A data producer generates random employee data (Id, Name, Department, Salary) and pushes it to a Kafka topic (`Employeefinal`).
+2.  **Processing**: A Spark Structured Streaming application reads from the Kafka topic.
+    *   It parses the JSON data.
+    *   It filters employees into two categories:
+        *   **High Salary**: Salary >= 20,000
+        *   **Low Salary**: Salary < 20,000
+3.  **Sinks**:
+    *   **MySQL**: Data is written to `high_salary` and `low_salary` tables.
+    *   **Kafka**: Data is written back to `high_salary` and `low_salary` topics.
 
-4. Data extraction and transformation: After reading the data, I extracted and transformed it from Kafka's format to a DataFrame. I did this by casting the data to string and parsing it as JSON. I then selected the necessary fields, converting the Salary to an integer and adding a timestamp to each row.
+## Prerequisites
 
-5. Data processing: I split the DataFrame into two categories: high salary (salary >= 20000) and low salary (salary < 20000).
+*   Docker and Docker Compose
+*   Java 1.8+ (Tested with Java 17/21)
+*   Maven
 
-6. Serialization: I converted both DataFrames back to JSON format in preparation for writing them back to Kafka.
+## Project Structure
 
-7. JDBC connection setup: I set up a JDBC connection to a MySQL database with the necessary credentials and driver information.
+```
+.
+├── docker-compose.yml          # Infrastructure setup (Kafka, Zookeeper, MySQL)
+├── init.sql                    # MySQL initialization script
+├── pom.xml                     # Maven build configuration
+├── src
+│   ├── main
+│   │   ├── resources
+│   │   │   └── application.properties # Configuration file
+│   │   └── scala
+│   │       └── com
+│   │           └── capstone
+│   │               ├── EmployeeDataProducer.scala # Generates test data
+│   │               └── SalaryProcessor.scala      # Main processing logic
+│   └── test
+│       └── scala
+│           └── com
+│               └── capstone
+│                   └── SalaryProcessorTest.scala  # Unit tests
+```
 
-8. Writing to MySQL: Using the writeStream functionality, I wrote the high salary and low salary data to two different tables ("high_salary" and "low_salary") in the MySQL database in batch mode. The data is appended to these tables every 10 seconds.
+## Setup & Running
 
-9. Writing back to Kafka: I also wrote the high and low salary data back to two separate Kafka topics, "high_salary" and "low_salary", using Spark's writeStream function. The data in Kafka is updated every 10 seconds as well.
+### 1. Start Infrastructure
 
+Start Kafka, Zookeeper, and MySQL using Docker Compose:
 
-So, in a nutshell, this program reads real-time employee data from a Kafka topic, processes it in Spark to categorize employees into high and low salary groups, writes the results to a MySQL database and back to separate Kafka topics for further downstream processing.
+```bash
+docker-compose up -d
+```
+
+### 2. Build the Project
+
+Compile the Scala code and run tests:
+
+```bash
+mvn clean package
+```
+
+### 3. Run the Data Producer
+
+This will start generating random employee data and sending it to the `Employeefinal` Kafka topic.
+
+```bash
+mvn scala:run -DmainClass=com.capstone.EmployeeDataProducer
+```
+
+### 4. Run the Data Processor
+
+This will start the Spark Streaming application.
+
+```bash
+mvn scala:run -DmainClass=com.capstone.SalaryProcessor
+```
+
+### 5. Verify Data
+
+You can check the MySQL database to see the populated tables:
+
+```bash
+docker exec -it <mysql_container_id> mysql -u root -ppassword EmployeeTest
+```
+
+```sql
+SELECT * FROM high_salary LIMIT 10;
+SELECT * FROM low_salary LIMIT 10;
+```
+
+## Configuration
+
+Configuration settings (Kafka brokers, topics, MySQL credentials) are located in `src/main/resources/application.properties`.
