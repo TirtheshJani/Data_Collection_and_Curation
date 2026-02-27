@@ -1,0 +1,11 @@
+Discovery starting.
+Discovery completed in 149 milliseconds.
+Run starting. Expected test count is: 2
+SalaryProcessorTest:
+- High salary filter should only include salaries >= 20000 (4 seconds, 684 milliseconds)
+- Low salary filter should only include salaries < 20000 (138 milliseconds)
+Run completed in 8 seconds, 354 milliseconds.
+Total number of tests run: 2
+Suites: completed 2, aborted 0
+Tests: succeeded 2, failed 0, canceled 0, ignored 0, pending 0
+All tests passed.
