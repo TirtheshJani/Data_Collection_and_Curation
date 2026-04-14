@@ -4,50 +4,82 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.internal.Logging
 import java.util.Properties
-import java.io.FileInputStream
 
-object SalaryProcessor {
+/**
+ * Real-time salary classification processor.
+ *
+ * Reads employee JSON records from a Kafka topic, classifies each record as
+ * "high salary" (>= 20,000) or "low salary" (< 20,000), and writes the
+ * categorized results to both MySQL tables and dedicated Kafka topics.
+ *
+ * ==Pipeline==
+ *  1. '''Ingest''' — subscribe to the input Kafka topic.
+ *  2. '''Parse''' — deserialize JSON payloads using a predefined schema.
+ *  3. '''Classify''' — split the stream by salary threshold.
+ *  4. '''Sink''' — write each category to MySQL (via JDBC) and to separate Kafka topics.
+ *
+ * Configuration is loaded from `application.properties` on the classpath.
+ *
+ * @see [[EmployeeDataProducer]] for the upstream data generator.
+ */
+object SalaryProcessor extends Logging {
+
+  /** Salary threshold used to classify employees. */
+  val SalaryThreshold: Int = 20000
+
+  /** Schema for the inbound employee JSON records. */
+  val employeeSchema: StructType = StructType(Seq(
+    StructField("Id", StringType),
+    StructField("Name", StringType),
+    StructField("Department", StringType),
+    StructField("Salary", IntegerType),
+    StructField("timestamp", TimestampType)
+  ))
+
+  /** Loads configuration properties from the classpath. */
+  private def loadConfig(): Properties = {
+    val properties = new Properties()
+    val configStream = getClass.getClassLoader.getResourceAsStream("application.properties")
+    if (configStream == null) {
+      throw new RuntimeException("Configuration file 'application.properties' not found in classpath")
+    }
+    try {
+      properties.load(configStream)
+    } finally {
+      configStream.close()
+    }
+    properties
+  }
+
   def main(args: Array[String]): Unit = {
-    val spark = SparkSession.builder
+    val properties = loadConfig()
+
+    val kafkaBootstrapServers: String = properties.getProperty("kafka.bootstrap.servers")
+    val inputTopic: String = properties.getProperty("kafka.topic.input")
+    val highSalaryTopic: String = properties.getProperty("kafka.topic.high_salary")
+    val lowSalaryTopic: String = properties.getProperty("kafka.topic.low_salary")
+
+    val jdbcUrl: String = properties.getProperty("mysql.url")
+    val connectionProperties = new Properties()
+    connectionProperties.put("user", properties.getProperty("mysql.user"))
+    connectionProperties.put("password", properties.getProperty("mysql.password"))
+    connectionProperties.put("driver", properties.getProperty("mysql.driver"))
+
+    val checkpointBaseDir: String = properties.getProperty("checkpoint.base.dir")
+
+    logInfo(s"Starting SalaryProcessor — reading from topic: $inputTopic, threshold: $SalaryThreshold")
+
+    val spark: SparkSession = SparkSession.builder
       .appName("EmployeeSalaryProcessor")
       .master("local[*]")
       .getOrCreate()
 
     import spark.implicits._
 
-    // Load configuration
-    val properties = new Properties()
-    val configStream = SalaryProcessor.getClass.getClassLoader.getResourceAsStream("application.properties")
-    if (configStream != null) {
-      properties.load(configStream)
-    } else {
-      throw new RuntimeException("Configuration file 'application.properties' not found in classpath")
-    }
-
-    val kafkaBootstrapServers = properties.getProperty("kafka.bootstrap.servers")
-    val inputTopic = properties.getProperty("kafka.topic.input")
-    val highSalaryTopic = properties.getProperty("kafka.topic.high_salary")
-    val lowSalaryTopic = properties.getProperty("kafka.topic.low_salary")
-
-    val jdbcUrl = properties.getProperty("mysql.url")
-    val connectionProperties = new Properties()
-    connectionProperties.put("user", properties.getProperty("mysql.user"))
-    connectionProperties.put("password", properties.getProperty("mysql.password"))
-    connectionProperties.put("driver", properties.getProperty("mysql.driver"))
-
-    val checkpointBaseDir = properties.getProperty("checkpoint.base.dir")
-
-    val employeeSchema = StructType(Seq(
-      StructField("Id", StringType),
-      StructField("Name", StringType),
-      StructField("Department", StringType),
-      StructField("Salary", IntegerType),
-      StructField("timestamp", TimestampType)
-    ))
-
-    // Set up Kafka source to read data from the "Employee" topic
-    val employeeUserDF = spark.readStream
+    // Ingest: subscribe to Kafka and parse JSON payloads
+    val employeeDF: DataFrame = spark.readStream
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
       .option("subscribe", inputTopic)
@@ -63,15 +95,14 @@ object SalaryProcessor {
         $"employee.timestamp".alias("timestamp")
       )
 
-    // Process the data and categorize it
-    val highSalary = employeeUserDF.filter($"Salary" >= 20000)
-    val lowSalary = employeeUserDF.filter($"Salary" < 20000)
+    // Classify by salary threshold
+    val highSalary: DataFrame = employeeDF.filter($"Salary" >= SalaryThreshold)
+    val lowSalary: DataFrame = employeeDF.filter($"Salary" < SalaryThreshold)
 
-    // Serialize the data for writing to Kafka
-    val highSalaryJson = highSalary.select(to_json(struct(col("*"))).cast("string").as("value"))
-    val lowSalaryJson = lowSalary.select(to_json(struct(col("*"))).cast("string").as("value"))
+    val highSalaryJson: DataFrame = highSalary.select(to_json(struct(col("*"))).cast("string").as("value"))
+    val lowSalaryJson: DataFrame = lowSalary.select(to_json(struct(col("*"))).cast("string").as("value"))
 
-    // Write to MySQL
+    // Sink: write to MySQL via JDBC
     val highSalaryMySQLQuery = highSalary.writeStream
       .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
         batchDF.write
@@ -92,7 +123,7 @@ object SalaryProcessor {
       .trigger(Trigger.ProcessingTime("10 seconds"))
       .start()
 
-    // Write back to Kafka
+    // Sink: write categorized records back to Kafka
     val highSalaryKafkaQuery = highSalaryJson.writeStream
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
@@ -111,7 +142,8 @@ object SalaryProcessor {
       .trigger(Trigger.ProcessingTime("10 seconds"))
       .start()
 
-    // Await termination of all streams
+    logInfo("All streaming queries started — awaiting termination")
+
     spark.streams.awaitAnyTermination()
   }
 }
