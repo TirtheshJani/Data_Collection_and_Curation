@@ -1,6 +1,5 @@
 # Real-Time Employee Salary Processing Pipeline
 
-[![CI](https://github.com/TirtheshJani/Data_Collection_and_Curation/actions/workflows/ci.yml/badge.svg)](https://github.com/TirtheshJani/Data_Collection_and_Curation/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Scala](https://img.shields.io/badge/Scala-2.12-red?logo=scala)
 ![Spark](https://img.shields.io/badge/Apache%20Spark-3.5.0-E25A1C?logo=apachespark&logoColor=white)
@@ -50,7 +49,6 @@ Built with **Apache Spark Structured Streaming**, **Apache Kafka**, and **MySQL*
 | Build Tool | Apache Maven |
 | Testing | ScalaTest 3.2 |
 | Containerization | Docker & Docker Compose |
-| CI | GitHub Actions |
 
 ---
 
@@ -58,9 +56,7 @@ Built with **Apache Spark Structured Streaming**, **Apache Kafka**, and **MySQL*
 
 ```
 .
-├── .github/workflows/ci.yml        # CI pipeline (build + test)
 ├── docker-compose.yml               # Kafka, Zookeeper, MySQL infrastructure
-├── Dockerfile                       # Multi-stage application image
 ├── init.sql                         # Database schema with indexes
 ├── pom.xml                          # Maven build configuration
 └── src
