@@ -2,31 +2,54 @@ package com.capstone
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
+import org.apache.spark.internal.Logging
 import java.util.Properties
 
-object EmployeeDataProducer {
+/**
+ * Generates synthetic employee data and publishes it to a Kafka topic.
+ *
+ * This producer uses Spark's built-in rate source to create a continuous stream
+ * of randomized employee records (Id, Name, Department, Salary, timestamp) and
+ * writes them as JSON to a configurable Kafka topic for downstream processing.
+ *
+ * Configuration is loaded from `application.properties` on the classpath.
+ *
+ * @see [[SalaryProcessor]] for the downstream consumer that categorizes records by salary.
+ */
+object EmployeeDataProducer extends Logging {
+
+  /** Loads configuration properties from the classpath. */
+  private def loadConfig(): Properties = {
+    val properties = new Properties()
+    val configStream = getClass.getClassLoader.getResourceAsStream("application.properties")
+    if (configStream == null) {
+      throw new RuntimeException("Configuration file 'application.properties' not found in classpath")
+    }
+    try {
+      properties.load(configStream)
+    } finally {
+      configStream.close()
+    }
+    properties
+  }
+
   def main(args: Array[String]): Unit = {
-    val spark = SparkSession.builder
+    val properties = loadConfig()
+
+    val kafkaBootstrapServers: String = properties.getProperty("kafka.bootstrap.servers")
+    val topic: String = properties.getProperty("kafka.topic.input")
+    val checkpointBaseDir: String = properties.getProperty("checkpoint.base.dir")
+
+    logInfo(s"Starting EmployeeDataProducer — target topic: $topic, brokers: $kafkaBootstrapServers")
+
+    val spark: SparkSession = SparkSession.builder
       .appName("EmployeeDataProducer")
       .master("local[*]")
       .getOrCreate()
 
     import spark.implicits._
 
-    // Load configuration
-    val properties = new Properties()
-    val configStream = EmployeeDataProducer.getClass.getClassLoader.getResourceAsStream("application.properties")
-    if (configStream != null) {
-      properties.load(configStream)
-    } else {
-      throw new RuntimeException("Configuration file 'application.properties' not found in classpath")
-    }
-
-    val kafkaBootstrapServers = properties.getProperty("kafka.bootstrap.servers")
-    val topic = properties.getProperty("kafka.topic.input")
-
-    // Generate random data
-    val departments = Seq("Engineering", "HR", "Sales", "Marketing", "Finance")
+    val departments: Seq[String] = Seq("Engineering", "HR", "Sales", "Marketing", "Finance")
 
     val rateStream = spark.readStream
       .format("rate")
@@ -36,16 +59,20 @@ object EmployeeDataProducer {
     val employeeData = rateStream
       .withColumn("Id", expr("uuid()"))
       .withColumn("Name", expr("concat('Employee_', cast(rand()*1000 as int))"))
-      .withColumn("Department", expr(s"elt(cast(rand()*${departments.size} as int) + 1, ${departments.map(d => s"'$d'").mkString(",")})"))
-      .withColumn("Salary", (rand() * 40000 + 10000).cast("int")) // Salary between 10,000 and 50,000
+      .withColumn("Department", expr(
+        s"elt(cast(rand()*${departments.size} as int) + 1, ${departments.map(d => s"'$d'").mkString(",")})"
+      ))
+      .withColumn("Salary", (rand() * 40000 + 10000).cast("int"))
       .withColumn("timestamp", current_timestamp())
       .select(to_json(struct($"Id", $"Name", $"Department", $"Salary", $"timestamp")).alias("value"))
+
+    logInfo("Streaming query started — writing employee records to Kafka")
 
     val query = employeeData.writeStream
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
       .option("topic", topic)
-      .option("checkpointLocation", s"/tmp/checkpoints/producer")
+      .option("checkpointLocation", s"$checkpointBaseDir/producer")
       .start()
 
     query.awaitTermination()

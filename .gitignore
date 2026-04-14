@@ -1,8 +1,35 @@
+# Build artifacts
 target/
+*.class
+*.jar
+*.war
+
+# IDE
 .idea/
 *.iml
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Spark / Hadoop
 checkpoint/
 spark-warehouse/
 metastore_db/
 derby.log
+
+# Environment / Secrets
+.env
+*.env
+credentials.json
+
+# Logs
+*.log
+logs/

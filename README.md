@@ -1,61 +1,101 @@
-# Real-time Employee Salary Processing Pipeline
+# Real-Time Employee Salary Processing Pipeline
 
-This project implements a real-time data streaming pipeline using Apache Spark Structured Streaming, Kafka, and MySQL. It processes employee data, categorizes it based on salary, and stores the results in both MySQL and Kafka for downstream consumption.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Scala](https://img.shields.io/badge/Scala-2.12-red?logo=scala)
+![Spark](https://img.shields.io/badge/Apache%20Spark-3.5.0-E25A1C?logo=apachespark&logoColor=white)
+![Kafka](https://img.shields.io/badge/Apache%20Kafka-7.4.0-231F20?logo=apachekafka&logoColor=white)
+
+A production-style data streaming application that ingests employee records in real time, classifies them by salary, and sinks the results to both **MySQL** and **Kafka** for downstream analytics.
+
+Built with **Apache Spark Structured Streaming**, **Apache Kafka**, and **MySQL** — fully containerized with **Docker Compose**.
+
+---
 
 ## Architecture
 
-1.  **Data Source**: A data producer generates random employee data (Id, Name, Department, Salary) and pushes it to a Kafka topic (`Employeefinal`).
-2.  **Processing**: A Spark Structured Streaming application reads from the Kafka topic.
-    *   It parses the JSON data.
-    *   It filters employees into two categories:
-        *   **High Salary**: Salary >= 20,000
-        *   **Low Salary**: Salary < 20,000
-3.  **Sinks**:
-    *   **MySQL**: Data is written to `high_salary` and `low_salary` tables.
-    *   **Kafka**: Data is written back to `high_salary` and `low_salary` topics.
+```
+┌──────────────────┐       ┌───────────────┐       ┌──────────────────────────────┐
+│  Data Producer   │──────▶│  Kafka Topic   │──────▶│  Spark Structured Streaming  │
+│ (rate source +   │       │ Employeefinal  │       │     SalaryProcessor          │
+│  random records) │       └───────────────┘       └──────────┬───────────────────┘
+└──────────────────┘                                          │
+                                                   ┌──────────┴──────────┐
+                                                   ▼                     ▼
+                                          Salary >= 20,000       Salary < 20,000
+                                                   │                     │
+                                          ┌────────┴────────┐  ┌────────┴────────┐
+                                          ▼                 ▼  ▼                 ▼
+                                     Kafka Topic      MySQL    Kafka Topic    MySQL
+                                     high_salary    high_salary low_salary  low_salary
+```
 
-## Prerequisites
+**Pipeline stages:**
 
-*   Docker and Docker Compose
-*   Java 1.8+ (Tested with Java 17/21)
-*   Maven
+1. **Ingest** — `EmployeeDataProducer` generates randomized employee records (Id, Name, Department, Salary) at a configurable rate and publishes JSON to a Kafka topic.
+2. **Parse** — `SalaryProcessor` subscribes to the topic and deserializes each JSON payload against a predefined schema.
+3. **Classify** — Records are split into *high salary* (>= 20,000) and *low salary* (< 20,000) streams.
+4. **Sink** — Each category is written to a dedicated MySQL table *and* a dedicated Kafka topic for downstream consumers.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Language | Scala 2.12 |
+| Stream Processing | Apache Spark 3.5.0 (Structured Streaming) |
+| Message Broker | Apache Kafka (Confluent 7.4.0) |
+| Database | MySQL 8.0 |
+| Build Tool | Apache Maven |
+| Testing | ScalaTest 3.2 |
+| Containerization | Docker & Docker Compose |
+
+---
 
 ## Project Structure
 
 ```
 .
-├── docker-compose.yml          # Infrastructure setup (Kafka, Zookeeper, MySQL)
-├── init.sql                    # MySQL initialization script
-├── pom.xml                     # Maven build configuration
-├── src
-│   ├── main
-│   │   ├── resources
-│   │   │   └── application.properties # Configuration file
-│   │   └── scala
-│   │       └── com
-│   │           └── capstone
-│   │               ├── EmployeeDataProducer.scala # Generates test data
-│   │               └── SalaryProcessor.scala      # Main processing logic
-│   └── test
-│       └── scala
-│           └── com
-│               └── capstone
-│                   └── SalaryProcessorTest.scala  # Unit tests
+├── docker-compose.yml               # Kafka, Zookeeper, MySQL infrastructure
+├── init.sql                         # Database schema with indexes
+├── pom.xml                          # Maven build configuration
+└── src
+    ├── main
+    │   ├── resources
+    │   │   └── application.properties   # Externalized configuration
+    │   └── scala/com/capstone
+    │       ├── EmployeeDataProducer.scala  # Synthetic data generator
+    │       └── SalaryProcessor.scala       # Stream processing & classification
+    └── test
+        └── scala/com/capstone
+            └── SalaryProcessorTest.scala    # Unit & edge-case tests
 ```
 
-## Setup & Running
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Docker** and **Docker Compose**
+- **Java 17+** (tested with JDK 17 and 21)
+- **Maven 3+**
 
 ### 1. Start Infrastructure
 
-Start Kafka, Zookeeper, and MySQL using Docker Compose:
+Spin up Kafka, Zookeeper, and MySQL (with automatic schema creation):
 
 ```bash
 docker-compose up -d
 ```
 
-### 2. Build the Project
+Wait for all services to be healthy:
 
-Compile the Scala code and run tests:
+```bash
+docker-compose ps
+```
+
+### 2. Build the Project
 
 ```bash
 mvn clean package
@@ -63,33 +103,82 @@ mvn clean package
 
 ### 3. Run the Data Producer
 
-This will start generating random employee data and sending it to the `Employeefinal` Kafka topic.
+Start generating synthetic employee records:
 
 ```bash
 mvn scala:run -DmainClass=com.capstone.EmployeeDataProducer
 ```
 
-### 4. Run the Data Processor
+### 4. Run the Salary Processor
 
-This will start the Spark Streaming application.
+In a separate terminal, start the streaming application:
 
 ```bash
 mvn scala:run -DmainClass=com.capstone.SalaryProcessor
 ```
 
-### 5. Verify Data
+### 5. Verify Results
 
-You can check the MySQL database to see the populated tables:
+Connect to MySQL and query the categorized data:
 
 ```bash
-docker exec -it <mysql_container_id> mysql -u root -ppassword EmployeeTest
+docker exec -it mysql mysql -u root -ppassword EmployeeTest
 ```
 
 ```sql
 SELECT * FROM high_salary LIMIT 10;
-SELECT * FROM low_salary LIMIT 10;
+SELECT * FROM low_salary  LIMIT 10;
+SELECT COUNT(*) AS total_high FROM high_salary;
+SELECT COUNT(*) AS total_low  FROM low_salary;
 ```
+
+---
 
 ## Configuration
 
-Configuration settings (Kafka brokers, topics, MySQL credentials) are located in `src/main/resources/application.properties`.
+All settings are externalized in [`src/main/resources/application.properties`](src/main/resources/application.properties):
+
+| Property | Description | Default |
+|---|---|---|
+| `kafka.bootstrap.servers` | Kafka broker addresses | `localhost:9092` |
+| `kafka.topic.input` | Input topic for raw employee data | `Employeefinal` |
+| `kafka.topic.high_salary` | Output topic for high salary records | `high_salary` |
+| `kafka.topic.low_salary` | Output topic for low salary records | `low_salary` |
+| `mysql.url` | JDBC connection URL | `jdbc:mysql://localhost:3306/EmployeeTest` |
+| `mysql.user` | Database user | `root` |
+| `mysql.password` | Database password | `${MYSQL_PASSWORD}` |
+| `checkpoint.base.dir` | Spark checkpoint directory | `/tmp/checkpoints` |
+
+---
+
+## Testing
+
+Run the full test suite:
+
+```bash
+mvn test
+```
+
+The test suite covers:
+- Schema validation
+- High/low salary filter logic
+- Boundary conditions (exact threshold value)
+- Mutual exclusivity and completeness of classification
+- Empty dataset handling
+- JSON serialization round-trip
+
+---
+
+## Teardown
+
+Stop and remove all containers and volumes:
+
+```bash
+docker-compose down -v
+```
+
+---
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
